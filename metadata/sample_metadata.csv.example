@@ -1,0 +1,7 @@
+sample_id,folder_name,donor,treatment
+S01,S01,donor1,DMSO
+S02,S02,donor1,VX800
+S03,S03,donor2,DMSO
+S04,S04,donor2,VX800
+S05,S05,donor3,DMSO
+S06,S06,donor3,VX800

@@ -1,0 +1,54 @@
+# Capstone scRNA-seq pipeline — edit paths and thresholds here, then run:
+#   Rscript run_scrna_pipeline.R
+
+project:
+  name: "GSE288434_CAR-T_scRNA"
+  run_id: null  # null = auto timestamp folder under results/
+
+paths:
+  # Parent folder containing one subfolder per sample (10x format).
+  # Each subfolder must have: barcodes.tsv.gz, features.tsv.gz, matrix.mtx.gz
+  data_dir: "data/raw"
+  # CSV with columns: sample_id, folder_name, donor, treatment (and optional batch)
+  metadata_file: "metadata/sample_metadata.csv"
+  output_dir: "results"
+
+samples:
+  # If empty, pipeline uses every row in metadata_file.
+  # Example: ["S01", "S02"]
+  include: []  # all rows in metadata; e.g. ["S01"] for smoke test
+
+# Downsample for laptop-friendly runs (disable for HPC / more RAM)
+subsample:
+  enabled: true
+  max_cells_per_sample: 3000
+
+qc:
+  min_features: 200
+  max_features: 6000
+  max_percent_mt: 15
+  min_counts: 500
+  max_counts: 30000
+
+analysis:
+  normalization_method: "LogNormalize"  # Seurat default
+  n_variable_features: 1500
+  scale_regress_vars: []  # e.g. ["percent.mt"]; empty skips regression (lower memory)
+  pca_dims: 30
+  umap_dims: 30
+  cluster_resolution: 0.5
+  random_seed: 42
+
+markers:
+  test_use: "wilcox"
+  only_pos: true
+  min_pct: 0.25
+  logfc_threshold: 0.25
+  top_n_per_cluster: 25
+
+outputs:
+  save_rds: true
+  plot_format: "png"
+  plot_width: 8
+  plot_height: 6
+  dpi: 150

@@ -3,3 +3,5 @@
 .ipynb_checkpoints
 Reorganize GSE.ipynb
 data/
+results/
+metadata/sample_metadata.csv
