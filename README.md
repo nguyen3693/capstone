@@ -11,4 +11,5 @@ Single-command Seurat pipeline: QC → clusters → UMAP → marker tables.
 
 Full design and pseudocode: [docs/PIPELINE.md](docs/PIPELINE.md).  
 **Methods paragraph for your write-up:** [docs/METHODS.md](docs/METHODS.md).  
+**Parameter playground (Shiny):** [docs/APP.md](docs/APP.md) — launch with `R -e "shiny::runApp('app', launch.browser = TRUE)"`.  
 Edit paths and thresholds in [config.yaml](config.yaml).
