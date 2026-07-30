@@ -399,3 +399,100 @@ create_expression_panel_violin <- function(
     missing_genes = missing_genes
   )
 }
+
+# Save a reproducible UMAP bundle for one completed dashboard run.
+save_run_output_bundle <- function(run_result,
+                                   run_label,
+                                   output_root,
+                                   source_rds = NA_character_,
+                                   timestamp = Sys.time()) {
+  run_label <- match.arg(run_label, c("A", "B"))
+  timestamp_text <- format(timestamp, "%Y%m%d-%H%M%S")
+  folder_name <- paste0("Run-", run_label, "-", timestamp_text)
+  output_dir <- file.path(output_root, folder_name)
+
+  suffix <- 1L
+  while (dir.exists(output_dir)) {
+    output_dir <- file.path(output_root, paste0(folder_name, "-", suffix))
+    suffix <- suffix + 1L
+  }
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+  obj <- run_result$obj
+  groupings <- c(
+    clusters = "seurat_clusters",
+    donor = "donor",
+    treatment = "treatment",
+    sample = "sample_id"
+  )
+  missing_metadata <- setdiff(unname(groupings), colnames(obj[[]]))
+  if (length(missing_metadata) > 0) {
+    stop(
+      "Cannot export UMAPs; metadata missing: ",
+      paste(missing_metadata, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  png_files <- character()
+  for (name in names(groupings)) {
+    group_by <- groupings[[name]]
+    title <- paste0(
+      "Run ", run_label, " — inferred ", run_result$lineage,
+      " | colored by ", name
+    )
+    p <- plot_umap(
+      obj,
+      group_by = group_by,
+      title = title,
+      label = identical(group_by, "seurat_clusters")
+    )
+    png_path <- file.path(output_dir, paste0("umap_", name, ".png"))
+    ggplot2::ggsave(
+      filename = png_path,
+      plot = p,
+      width = 8,
+      height = 6,
+      dpi = 180
+    )
+    png_files <- c(png_files, png_path)
+  }
+
+  parameter_lines <- c(
+    paste("run:", run_label),
+    paste("timestamp:", format(timestamp, "%Y-%m-%d %H:%M:%S %Z")),
+    paste("source_rds:", source_rds),
+    paste("lineage:", run_result$lineage),
+    paste("cells_available_in_lineage:", run_result$n_lineage_available),
+    paste("cells_used:", run_result$n_cells),
+    paste("subsampled:", run_result$subsampled),
+    paste("cluster_resolution:", run_result$resolution),
+    paste("pca_umap_dimensions:", run_result$dims),
+    paste("random_seed:", run_result$seed),
+    paste("clusters_generated:", run_result$n_clusters),
+    paste("elapsed_seconds:", round(run_result$elapsed_sec, 2)),
+    "lineage_method: CD4 vs mean(CD8A, CD8B), minimum normalized-expression score 0.25",
+    "workflow: lineage subset -> variable features -> scaling -> PCA -> neighbors -> clusters -> UMAP"
+  )
+  parameter_path <- file.path(output_dir, "parameters.txt")
+  writeLines(parameter_lines, parameter_path)
+
+  list(
+    directory = output_dir,
+    folder_name = basename(output_dir),
+    png_files = png_files,
+    parameter_file = parameter_path
+  )
+}
+
+zip_run_output_bundle <- function(bundle, zipfile) {
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(dirname(bundle$directory))
+  utils::zip(
+    zipfile = normalizePath(zipfile, mustWork = FALSE),
+    files = basename(bundle$directory),
+    flags = "-r9X"
+  )
+  invisible(zipfile)
+}

@@ -11,6 +11,7 @@ Compare inferred CD4 and CD8 populations side by side without re-running QC from
 5. Shows side-by-side UMAPs colored by cluster, treatment, sample, or donor.
 6. Computes positive marker genes on demand, labels each cluster with its top genes, and exports the marker results as CSV.
 7. Generates side-by-side CD4 and CD8 expression panels, with each run's fixed-gene violin plots stacked in one column.
+8. Saves reproducible Run A or Run B UMAP bundles directly under `parameter-playground/` and optionally downloads them as ZIP files.
 
 The inferred lineage display compares `CD4` expression with mean `CD8A`/`CD8B` expression. It is transcriptome-derived because this GEO series does not include FACS CD4/CD8 labels.
 
@@ -45,6 +46,19 @@ Or in RStudio: open `app/app.R` and click **Run App**.
 7. Select a run, choose how many genes to show, and click **Compute cluster markers**.
 8. Review the marker-labeled UMAP and download the complete CSV if needed.
 9. After both runs finish, click **Generate CD4 vs CD8 expression panels** to compare the fixed genes side by side.
+10. Use **Save Run A/B outputs** to write a timestamped project folder, or use the adjacent ZIP button for a browser download.
+
+## Exported UMAP bundle
+
+Each export creates `parameter-playground/Run-A-YYYYMMDD-HHMMSS/` or the corresponding Run B folder containing:
+
+- `umap_clusters.png`
+- `umap_donor.png`
+- `umap_treatment.png`
+- `umap_sample.png`
+- `parameters.txt`
+
+`parameters.txt` records the lineage, source RDS, cell counts, subsampling status, resolution, PCA/UMAP dimensions, random seed, number of clusters, runtime, and workflow. The entire `parameter-playground/` directory is gitignored.
 
 ## Notes
 

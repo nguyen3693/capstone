@@ -4,6 +4,7 @@
 Reorganize GSE.ipynb
 data/
 results/
+parameter-playground/
 metadata/sample_metadata.csv
 
 .Rhistory

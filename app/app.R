@@ -66,6 +66,16 @@ ui <- fluidPage(
       numericInput("seed_b", "Random seed", value = 42, min = 1, step = 1),
       actionButton("run_b", "Compute Run B", class = "btn-success"),
       hr(),
+      h4("Export UMAP bundles"),
+      actionButton("save_run_a", "Save Run A outputs", class = "btn-primary"),
+      downloadButton("download_run_a", "Download Run A ZIP"),
+      actionButton("save_run_b", "Save Run B outputs", class = "btn-primary"),
+      downloadButton("download_run_b", "Download Run B ZIP"),
+      helpText(
+        "Save writes directly to parameter-playground/ in this project. ",
+        "ZIP downloads the same folder through your browser."
+      ),
+      hr(),
       h4("Cluster annotations"),
       selectInput(
         "marker_run",
@@ -99,6 +109,7 @@ ui <- fluidPage(
     mainPanel(
       width = 9,
       textOutput("status"),
+      textOutput("export_status"),
       tags$hr(),
       fluidRow(
         column(6, h3("Run A — inferred CD4"), plotOutput("plot_a", height = "480px"), verbatimTextOutput("summary_a")),
@@ -136,8 +147,27 @@ server <- function(input, output, session) {
   marker_result <- reactiveVal(NULL)
   violin_result <- reactiveVal(NULL)
   status_msg <- reactiveVal("Load a Seurat RDS to begin.")
+  export_msg <- reactiveVal("No output bundle saved yet.")
 
   output$status <- renderText(status_msg())
+  output$export_status <- renderText(export_msg())
+
+  get_run_result <- function(run_label) {
+    if (identical(run_label, "A")) run_a() else run_b()
+  }
+
+  save_bundle <- function(run_label) {
+    result <- get_run_result(run_label)
+    if (is.null(result)) {
+      stop("Compute Run ", run_label, " before exporting.", call. = FALSE)
+    }
+    save_run_output_bundle(
+      run_result = result,
+      run_label = run_label,
+      output_root = file.path(project_root, "parameter-playground"),
+      source_rds = input$rds_path
+    )
+  }
 
   run_with_progress <- function(run_name, obj, resolution, dims, seed, n_cells, lineage) {
     withProgress(
@@ -185,6 +215,7 @@ server <- function(input, output, session) {
       run_b(NULL)
       marker_result(NULL)
       violin_result(NULL)
+      export_msg("No output bundle saved for the newly loaded object.")
 
       lineage_counts <- table(obj$t_lineage)
       n_cd4 <- as.integer(lineage_counts[["CD4"]])
@@ -230,6 +261,7 @@ server <- function(input, output, session) {
       run_a(out)
       marker_result(NULL)
       violin_result(NULL)
+      export_msg("Run A changed; save again to export its current parameters.")
       status_msg(sprintf(
         "Run A done in %.1fs | %s | clusters = %d",
         out$elapsed_sec,
@@ -261,6 +293,7 @@ server <- function(input, output, session) {
       run_b(out)
       marker_result(NULL)
       violin_result(NULL)
+      export_msg("Run B changed; save again to export its current parameters.")
       status_msg(sprintf(
         "Run B done in %.1fs | %s | clusters = %d",
         out$elapsed_sec,
@@ -271,6 +304,58 @@ server <- function(input, output, session) {
       status_msg(paste("Run B failed:", conditionMessage(e)))
     })
   })
+
+  observeEvent(input$save_run_a, {
+    tryCatch({
+      bundle <- withProgress(message = "Saving Run A output bundle", value = 0.2, {
+        setProgress(0.2, detail = "Rendering four UMAP PNGs...")
+        out <- save_bundle("A")
+        setProgress(1, detail = "Saved")
+        out
+      })
+      export_msg(paste("Saved Run A outputs to:", bundle$directory))
+    }, error = function(e) {
+      export_msg(paste("Run A export failed:", conditionMessage(e)))
+    })
+  })
+
+  observeEvent(input$save_run_b, {
+    tryCatch({
+      bundle <- withProgress(message = "Saving Run B output bundle", value = 0.2, {
+        setProgress(0.2, detail = "Rendering four UMAP PNGs...")
+        out <- save_bundle("B")
+        setProgress(1, detail = "Saved")
+        out
+      })
+      export_msg(paste("Saved Run B outputs to:", bundle$directory))
+    }, error = function(e) {
+      export_msg(paste("Run B export failed:", conditionMessage(e)))
+    })
+  })
+
+  output$download_run_a <- downloadHandler(
+    filename = function() {
+      paste0("Run-A-", format(Sys.time(), "%Y%m%d-%H%M%S"), ".zip")
+    },
+    content = function(file) {
+      bundle <- save_bundle("A")
+      zip_run_output_bundle(bundle, file)
+      export_msg(paste("Saved and downloaded Run A bundle:", bundle$directory))
+    },
+    contentType = "application/zip"
+  )
+
+  output$download_run_b <- downloadHandler(
+    filename = function() {
+      paste0("Run-B-", format(Sys.time(), "%Y%m%d-%H%M%S"), ".zip")
+    },
+    content = function(file) {
+      bundle <- save_bundle("B")
+      zip_run_output_bundle(bundle, file)
+      export_msg(paste("Saved and downloaded Run B bundle:", bundle$directory))
+    },
+    contentType = "application/zip"
+  )
 
   observeEvent(input$compute_markers, {
     out <- if (identical(input$marker_run, "B")) run_b() else run_a()
