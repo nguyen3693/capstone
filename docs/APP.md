@@ -1,15 +1,22 @@
 # Parameter playground (Shiny)
 
-Compare clustering / UMAP settings side by side without re-running QC from raw 10x data.
+Compare inferred CD4 and CD8 populations side by side without re-running QC from raw 10x data.
 
 ## What it does
 
 1. Loads a saved `results/*/seurat_processed.rds` from the pipeline.
-3. Choose **total cells** (subsample for speed) and set **resolution**, **PCA/UMAP dims**, and **seed** for **Run A** and **Run B**.
-4. Recomputes neighbors → clusters → UMAP for each run (progress bar + estimated time left).
-5. Optionally split into **inferred CD4+ vs CD8+** UMAPs (from `CD4` vs `CD8A`/`CD8B` expression; this GEO series has no FACS lineage labels).
+2. Infers lineage from `CD4` versus mean `CD8A`/`CD8B` expression, then splits the cells before dimensionality reduction.
+3. Uses **Run A for inferred CD4** and **Run B for inferred CD8**, with the same requested cell count for balance.
+4. Recomputes lineage-specific variable genes → scaling → PCA → neighbors → clusters → UMAP for each run (progress bar + estimated time left).
+5. Shows side-by-side UMAPs colored by cluster, treatment, sample, or donor.
+6. Computes positive marker genes on demand, labels each cluster with its top genes, and exports the marker results as CSV.
+7. Generates side-by-side CD4 and CD8 expression panels, with each run's fixed-gene violin plots stacked in one column.
 
-## Suggested first comparison
+The inferred lineage display compares `CD4` expression with mean `CD8A`/`CD8B` expression. It is transcriptome-derived because this GEO series does not include FACS CD4/CD8 labels.
+
+Marker genes describe how a cluster differs from the other cells; they are not automatically validated cell-type annotations.
+
+## Requirements
 
 R packages: `shiny`, `Seurat`, `ggplot2`, `patchwork` (plus what the pipeline already uses).
 
@@ -30,13 +37,21 @@ Or in RStudio: open `app/app.R` and click **Run App**.
 ## Suggested first comparison
 
 1. Click **Load object** (defaults to newest `seurat_processed.rds`).
-2. Run A: resolution `0.5`, dims `30`.
-3. Run B: resolution `0.8`, dims `30`.
-4. Color by **Clusters**, then switch to **Treatment**.
-5. Ask: does the DMSO-heavy island stay intact? do clusters split/merge?
+2. Choose the number of cells per lineage.
+3. Run A (CD4): resolution `0.5`, dims `30`.
+4. Run B (CD8): resolution `0.5`, dims `30`.
+5. Color by **Clusters**, then switch to **Treatment**.
+6. Ask: which transcriptional states are present within CD4 versus CD8 cells, and how are DMSO/VX800 cells distributed?
+7. Select a run, choose how many genes to show, and click **Compute cluster markers**.
+8. Review the marker-labeled UMAP and download the complete CSV if needed.
+9. After both runs finish, click **Generate CD4 vs CD8 expression panels** to compare the fixed genes side by side.
 
 ## Notes
 
-- This app does **not** re-filter QC or re-subsample; it explores clustering geometry on an already-processed object.
+- This app does **not** re-filter QC; it infers CD4/CD8 lineage and can randomly subsample each lineage from an already-processed object.
+- CD4/CD8 calls are transcriptome-derived, not FACS-validated labels.
 - Reclustering 18k cells may take ~30–90 seconds per run on a laptop.
+- Marker calculation can take several minutes and only runs when requested.
+- The fixed violin panel is `CD4`, `CD8A`, `GZMA`, `GZMB`, `IL7R`, `IL2RA`, `TCF7`, `FOXP3`, `TIGIT`, `CCR7`, `BCL2`, and `MCL1`.
+- The app reports panel genes that are missing from the loaded dataset.
 - Keep `results/` gitignored; the app only needs a local RDS.

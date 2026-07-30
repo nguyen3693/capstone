@@ -85,6 +85,7 @@ recluster_umap <- function(obj,
                            dims = 30,
                            seed = 42,
                            n_cells = NULL,
+                           lineage = "All",
                            progress_cb = NULL) {
   report <- function(detail, value, eta = NA_real_) {
     if (is.function(progress_cb)) {
@@ -96,16 +97,20 @@ recluster_umap <- function(obj,
   stage_times <- numeric()
 
   dims <- as.integer(dims)
-  max_pc <- ncol(obj[["pca"]])
   if (dims < 2) {
     stop("dims must be >= 2", call. = FALSE)
   }
-  if (dims > max_pc) {
-    dims <- max_pc
-  }
 
   # Stage weights for ETA (rough relative cost)
-  weights <- c(subsample = 0.05, neighbors = 0.25, clusters = 0.15, umap = 0.55)
+  weights <- c(
+    lineage = 0.05,
+    subsample = 0.05,
+    preprocess = 0.25,
+    pca = 0.15,
+    neighbors = 0.15,
+    clusters = 0.10,
+    umap = 0.25
+  )
   done_w <- 0
 
   update_eta <- function(just_finished_stage) {
@@ -123,7 +128,30 @@ recluster_umap <- function(obj,
     remaining_w * pace
   }
 
-  n_used <- ncol(obj)
+  lineage <- match.arg(lineage, c("All", "CD4", "CD8"))
+  if (lineage != "All") {
+    report(paste("Inferring and selecting", lineage, "cells..."), done_w, NA_real_)
+    obj <- assign_cd4_cd8(obj)
+    lineage_cells <- colnames(obj)[as.character(obj$t_lineage) == lineage]
+    if (length(lineage_cells) < 100) {
+      stop(
+        sprintf("Only %d inferred %s cells were found; at least 100 are required.", length(lineage_cells), lineage),
+        call. = FALSE
+      )
+    }
+    obj <- subset(obj, cells = lineage_cells)
+    done_w <- done_w + weights[["lineage"]]
+    report(
+      sprintf("Selected %s inferred %s cells", format(ncol(obj), big.mark = ","), lineage),
+      done_w,
+      update_eta("lineage")
+    )
+  } else {
+    weights[["lineage"]] <- 0
+  }
+
+  n_available <- ncol(obj)
+  n_used <- n_available
   subsampled <- FALSE
   if (!is.null(n_cells) && as.integer(n_cells) < ncol(obj)) {
     report("Subsampling cells...", done_w, NA_real_)
@@ -140,12 +168,39 @@ recluster_umap <- function(obj,
   } else {
     # Skip subsample stage weight
     weights[["subsample"]] <- 0
-    weights <- weights / sum(weights)
   }
 
   set.seed(as.integer(seed))
 
-  report("Finding neighbors...", done_w, NA_real_)
+  report("Finding lineage-specific variable genes and scaling...", done_w, NA_real_)
+  obj <- Seurat::FindVariableFeatures(
+    obj,
+    selection.method = "vst",
+    nfeatures = min(1500L, nrow(obj)),
+    verbose = FALSE
+  )
+  obj <- Seurat::ScaleData(
+    obj,
+    features = Seurat::VariableFeatures(obj),
+    verbose = FALSE
+  )
+  done_w <- done_w + weights[["preprocess"]]
+  report("Preprocessing done. Recomputing PCA...", done_w, update_eta("preprocess"))
+
+  max_dims <- min(dims, ncol(obj) - 1L, length(Seurat::VariableFeatures(obj)))
+  if (max_dims < 2) {
+    stop("Not enough cells or variable genes to compute PCA.", call. = FALSE)
+  }
+  dims <- max_dims
+  obj <- Seurat::RunPCA(
+    obj,
+    features = Seurat::VariableFeatures(obj),
+    npcs = dims,
+    verbose = FALSE
+  )
+  done_w <- done_w + weights[["pca"]]
+  report("PCA done. Finding neighbors...", done_w, update_eta("pca"))
+
   obj <- Seurat::FindNeighbors(obj, dims = 1:dims, verbose = FALSE)
   done_w <- done_w + weights[["neighbors"]]
   report("Neighbors done. Clustering...", done_w, update_eta("neighbors"))
@@ -162,6 +217,8 @@ recluster_umap <- function(obj,
     obj = obj,
     n_clusters = length(unique(Seurat::Idents(obj))),
     n_cells = n_used,
+    n_lineage_available = n_available,
+    lineage = lineage,
     subsampled = subsampled,
     resolution = as.numeric(resolution),
     dims = dims,
@@ -235,42 +292,110 @@ assign_cd4_cd8 <- function(obj, cd4_gene = "CD4", cd8_genes = c("CD8A", "CD8B"),
   obj
 }
 
-lineage_counts <- function(obj) {
-  if (!"t_lineage" %in% colnames(obj[[]])) {
-    return(NULL)
+# Find positive marker genes for every generated cluster and create readable labels.
+compute_cluster_markers <- function(obj,
+                                    top_n = 5,
+                                    min_pct = 0.25,
+                                    logfc_threshold = 0.25) {
+  if (!"seurat_clusters" %in% colnames(obj[[]])) {
+    stop("No generated clusters found. Compute Run A or Run B first.", call. = FALSE)
   }
-  as.data.frame(table(Lineage = obj$t_lineage), stringsAsFactors = FALSE)
+
+  top_n <- max(1L, as.integer(top_n))
+  obj <- Seurat::SetIdent(obj, value = "seurat_clusters")
+  markers <- Seurat::FindAllMarkers(
+    obj,
+    only.pos = TRUE,
+    min.pct = as.numeric(min_pct),
+    logfc.threshold = as.numeric(logfc_threshold),
+    test.use = "wilcox",
+    verbose = FALSE
+  )
+
+  if (nrow(markers) == 0) {
+    stop("No marker genes passed the current thresholds.", call. = FALSE)
+  }
+
+  fc_col <- if ("avg_log2FC" %in% colnames(markers)) "avg_log2FC" else "avg_logFC"
+  markers <- markers[order(markers$cluster, -markers[[fc_col]]), , drop = FALSE]
+  by_cluster <- split(markers, markers$cluster)
+  top_markers <- do.call(
+    rbind,
+    lapply(by_cluster, function(x) utils::head(x, top_n))
+  )
+  rownames(top_markers) <- NULL
+
+  summaries <- lapply(by_cluster, function(x) {
+    genes <- utils::head(x$gene, top_n)
+    data.frame(
+      cluster = as.character(x$cluster[[1]]),
+      top_genes = paste(genes, collapse = ", "),
+      stringsAsFactors = FALSE
+    )
+  })
+  cluster_summary <- do.call(rbind, summaries)
+  rownames(cluster_summary) <- NULL
+
+  label_map <- stats::setNames(
+    paste0("Cluster ", cluster_summary$cluster, ": ", cluster_summary$top_genes),
+    cluster_summary$cluster
+  )
+  annotations <- unname(label_map[as.character(obj$seurat_clusters)])
+  obj$cluster_annotation <- factor(annotations, levels = unname(label_map))
+
+  list(
+    obj = obj,
+    all_markers = markers,
+    top_markers = top_markers,
+    cluster_summary = cluster_summary,
+    fc_column = fc_col
+  )
 }
 
-plot_umap_lineage_split <- function(obj, group_by = "seurat_clusters", label = TRUE) {
-  if (!"t_lineage" %in% colnames(obj[[]])) {
-    obj <- assign_cd4_cd8(obj)
+plot_annotated_umap <- function(marker_result, title = "Clusters labeled by top marker genes") {
+  Seurat::DimPlot(
+    marker_result$obj,
+    reduction = "umap",
+    group.by = "cluster_annotation",
+    label = TRUE,
+    repel = TRUE
+  ) +
+    ggplot2::ggtitle(title) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(legend.position = "none")
+}
+
+# Plot a fixed T-cell gene panel across all generated clusters.
+create_expression_panel_violin <- function(
+    obj,
+    genes = c(
+      "CD4", "CD8A", "GZMA", "GZMB", "IL7R", "IL2RA",
+      "TCF7", "FOXP3", "TIGIT", "CCR7", "BCL2", "MCL1"
+    )) {
+  present_genes <- genes[genes %in% rownames(obj)]
+  missing_genes <- setdiff(genes, present_genes)
+  if (length(present_genes) == 0) {
+    stop("None of the requested expression-panel genes are present.", call. = FALSE)
   }
 
-  cd4_cells <- colnames(obj)[obj$t_lineage == "CD4"]
-  cd8_cells <- colnames(obj)[obj$t_lineage == "CD8"]
+  p <- Seurat::VlnPlot(
+    obj,
+    features = present_genes,
+    group.by = "seurat_clusters",
+    pt.size = 0,
+    ncol = 1,
+    combine = TRUE
+  ) &
+    ggplot2::theme_minimal() &
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
 
-  if (length(cd4_cells) < 10 || length(cd8_cells) < 10) {
-    stop(
-      sprintf(
-        "Not enough cells after split (CD4=%d, CD8=%d). Lower min score or include more cells.",
-        length(cd4_cells), length(cd8_cells)
-      ),
-      call. = FALSE
-    )
-  }
+  p <- p + patchwork::plot_annotation(
+    title = "T-cell expression panel across generated clusters"
+  )
 
-  p_cd4 <- plot_umap(
-    subset(obj, cells = cd4_cells),
-    group_by = group_by,
-    title = sprintf("CD4+ inferred (n=%s)", format(length(cd4_cells), big.mark = ",")),
-    label = label
+  list(
+    plot = p,
+    genes = present_genes,
+    missing_genes = missing_genes
   )
-  p_cd8 <- plot_umap(
-    subset(obj, cells = cd8_cells),
-    group_by = group_by,
-    title = sprintf("CD8+ inferred (n=%s)", format(length(cd8_cells), big.mark = ",")),
-    label = label
-  )
-  list(cd4 = p_cd4, cd8 = p_cd8, n_cd4 = length(cd4_cells), n_cd8 = length(cd8_cells))
 }
