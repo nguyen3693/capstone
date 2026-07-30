@@ -1,0 +1,38 @@
+project:
+  name: GSE288434_CAR-T_scRNA
+  run_id: ~
+paths:
+  data_dir: data/raw
+  metadata_file: metadata/sample_metadata.csv
+  output_dir: results
+samples:
+  include: []
+subsample:
+  enabled: yes
+  max_cells_per_sample: 3000
+qc:
+  min_features: 200
+  max_features: 6000
+  max_percent_mt: 15
+  min_counts: 500
+  max_counts: 30000
+analysis:
+  normalization_method: LogNormalize
+  n_variable_features: 1500
+  scale_regress_vars: []
+  pca_dims: 30
+  umap_dims: 30
+  cluster_resolution: 0.5
+  random_seed: 42
+markers:
+  test_use: wilcox
+  only_pos: yes
+  min_pct: 0.25
+  logfc_threshold: 0.25
+  top_n_per_cluster: 25
+outputs:
+  save_rds: yes
+  plot_format: png
+  plot_width: 8
+  plot_height: 6
+  dpi: 150

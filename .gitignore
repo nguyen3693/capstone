@@ -3,8 +3,8 @@
 .ipynb_checkpoints
 Reorganize GSE.ipynb
 data/
-results/
-parameter-playground/
+results/**/*.rds
+parameter-playground/**/*.rds
 metadata/sample_metadata.csv
 
 .Rhistory

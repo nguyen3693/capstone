@@ -1,0 +1,9 @@
+project: GSE288434_CAR-T_scRNA
+n_samples: 6
+samples: S01, S02, S03, S04, S05, S06
+qc: min_features=200; max_features=6000; max_percent_mt=15; min_counts=500; max_counts=30000
+cluster_resolution: 0.5
+seed: 42
+cells_raw_barcodes: 60435
+cells_merged: 18000
+subsample_enabled: true

@@ -1,0 +1,14 @@
+run: A
+timestamp: 2026-07-30 12:23:46 EDT
+source_rds: /Users/trangnguyen/projects/capstone/results/20260727_085933/seurat_processed.rds
+lineage: CD4
+cells_available_in_lineage: 3049
+cells_used: 2000
+subsampled: TRUE
+cluster_resolution: 0.5
+pca_umap_dimensions: 30
+random_seed: 42
+clusters_generated: 7
+elapsed_seconds: 7.97
+lineage_method: CD4 vs mean(CD8A, CD8B), minimum normalized-expression score 0.25
+workflow: lineage subset -> variable features -> scaling -> PCA -> neighbors -> clusters -> UMAP
